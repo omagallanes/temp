@@ -3,6 +3,7 @@ import { getR2Json } from "./storage";
 export type DatosGenerales = {
   nombre_proveedor: string;
   nif_proveedor: string;
+  numero_factura: string;
   fecha_emision: string;
   moneda: string;
   importe_base_total: number;
@@ -62,6 +63,7 @@ export class ValidationFailure extends Error {
 const REQ_DATOS_GENERALES: Array<keyof DatosGenerales> = [
   "nombre_proveedor",
   "nif_proveedor",
+  "numero_factura",
   "fecha_emision",
   "moneda",
   "importe_base_total",
