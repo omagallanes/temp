@@ -22,6 +22,12 @@ import {
   ensureFacturaNoDuplicada,
   insertarCabeceraFactura
 } from "./lib/cabecera";
+import {
+  validateLineasInput,
+  borrarLineasFactura,
+  insertarLineasFactura,
+  LineasFailure
+} from "./lib/lineas";
 
 export default class ProcesarFacturaWorkflow extends WorkflowEntrypoint<Env> {
   async run(event: any, step: any) {
@@ -199,7 +205,7 @@ export default class ProcesarFacturaWorkflow extends WorkflowEntrypoint<Env> {
       }
     });
 
-    return stepRunner.do("cabecera_fat_empresas", async () => {
+    const cabecera = await stepRunner.do("cabecera_fat_empresas", async () => {
       try {
         const entrada = validateCabeceraInput({
           ro: lectura.ro,
@@ -259,6 +265,65 @@ export default class ProcesarFacturaWorkflow extends WorkflowEntrypoint<Env> {
         const errorKey = buildErrorPathFromPdfKey(r2Key);
         await putR2(this.env.R2_FACTURAS, errorKey, JSON.stringify(errorPayload, null, 2));
         console.error(`[cabecera_fat_empresas] Error en cabecera, guardado en ${errorKey}`);
+        throw failure;
+      }
+    });
+
+    return stepRunner.do("lineas_fat_empresas", async () => {
+      try {
+        const entrada = validateLineasInput({
+          ro: cabecera.ro,
+          metadatos,
+          empresaId: cabecera.empresaId,
+          facturaId: cabecera.facturaId,
+          numeroFacturaNormalizado: cabecera.numeroFacturaNormalizado,
+          nombreNormalizadoProveedor: (cabecera as any).nombreNormalizadoProveedor
+        });
+
+        await borrarLineasFactura(this.env.DB_FAT_EMPRESAS, entrada.facturaId);
+
+        const lineasInsertadas = await insertarLineasFactura(
+          this.env.DB_FAT_EMPRESAS,
+          entrada.facturaId,
+          entrada.ro.lineas
+        );
+
+        return {
+          stepName: "lineas_fat_empresas",
+          workflowInstanceId: invoiceId,
+          invoiceId,
+          timestamp: new Date().toISOString(),
+          status: "ok",
+          lineasInsertadas,
+          facturaId: entrada.facturaId,
+          numeroFacturaNormalizado: entrada.numeroFacturaNormalizado,
+          nombreNormalizadoProveedor: entrada.nombreNormalizadoProveedor,
+          empresaId: entrada.empresaId,
+          ro: entrada.ro,
+          metadatos
+        };
+      } catch (error: any) {
+        const failure =
+          error instanceof ValidationFailure || error instanceof ProveedorFailure || error instanceof LineasFailure
+            ? error
+            : new ValidationFailure({
+                tipo_error: "estructura_ro_invalida",
+                descripcion: error instanceof Error ? error.message : String(error)
+              });
+
+        const errorPayload = buildValidationErrorPayload({
+          tipo_error: (failure as any).tipo_error ?? "estructura_ro_invalida",
+          descripcion: failure.message,
+          invoiceId,
+          archivo: { nombre_original: originalFileName, r2_pdf_key: r2Key, file_url: fileUrl },
+          campos_faltantes: (failure as any).campos_faltantes,
+          campos_invalidos: (failure as any).campos_invalidos,
+          origen: "lineas_fat_empresas"
+        });
+
+        const errorKey = buildErrorPathFromPdfKey(r2Key);
+        await putR2(this.env.R2_FACTURAS, errorKey, JSON.stringify(errorPayload, null, 2));
+        console.error(`[lineas_fat_empresas] Error en líneas, guardado en ${errorKey}`);
         throw failure;
       }
     });
