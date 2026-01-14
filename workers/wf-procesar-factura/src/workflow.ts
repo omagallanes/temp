@@ -19,7 +19,7 @@ import {
 import {
   validateCabeceraInput,
   normalizeNumeroFactura,
-  ensureFacturaNoDuplicada,
+  findFacturaIdPorEmisorYNumero,
   insertarCabeceraFactura
 } from "./lib/cabecera";
 import {
@@ -28,6 +28,16 @@ import {
   insertarLineasFactura,
   LineasFailure
 } from "./lib/lineas";
+import {
+  leerImportesCabecera,
+  sumarImportesLineas,
+  compararImportes,
+  TOLERANCIA_VALIDACION,
+  buildDiferenciaPayload,
+  buildDiferenciaPathFromPdfKey,
+  ValidacionProcesoFailure,
+  DiferenciaDetectada
+} from "./lib/validacion";
 
 export default class ProcesarFacturaWorkflow extends WorkflowEntrypoint<Env> {
   async run(event: any, step: any) {
@@ -215,24 +225,27 @@ export default class ProcesarFacturaWorkflow extends WorkflowEntrypoint<Env> {
 
         const numero_factura_normalizado = normalizeNumeroFactura(entrada.ro.datos_generales.numero_factura);
 
-        await ensureFacturaNoDuplicada(
+        const facturaExistenteId = await findFacturaIdPorEmisorYNumero(
           this.env.DB_FAT_EMPRESAS,
           proveedor.empresaId,
           entrada.ro.datos_generales.numero_factura
         );
 
-        const facturaId = await insertarCabeceraFactura(this.env.DB_FAT_EMPRESAS, {
-          emisor_id: proveedor.empresaId,
-          numero_factura: entrada.ro.datos_generales.numero_factura,
-          numero_factura_normalizado,
-          fecha_emision: entrada.ro.datos_generales.fecha_emision,
-          moneda: entrada.ro.datos_generales.moneda,
-          importe_base_total: entrada.ro.datos_generales.importe_base_total,
-          importe_impuestos_total: entrada.ro.datos_generales.importe_impuestos_total,
-          importe_retencion_total: entrada.ro.datos_generales.importe_retencion_total,
-          importe_total: entrada.ro.datos_generales.importe_total,
-          observaciones: entrada.ro.datos_generales.observaciones
-        });
+        const facturaId =
+          facturaExistenteId !== null
+            ? facturaExistenteId
+            : await insertarCabeceraFactura(this.env.DB_FAT_EMPRESAS, {
+                emisor_id: proveedor.empresaId,
+                numero_factura: entrada.ro.datos_generales.numero_factura,
+                numero_factura_normalizado,
+                fecha_emision: entrada.ro.datos_generales.fecha_emision,
+                moneda: entrada.ro.datos_generales.moneda,
+                importe_base_total: entrada.ro.datos_generales.importe_base_total,
+                importe_impuestos_total: entrada.ro.datos_generales.importe_impuestos_total,
+                importe_retencion_total: entrada.ro.datos_generales.importe_retencion_total,
+                importe_total: entrada.ro.datos_generales.importe_total,
+                observaciones: entrada.ro.datos_generales.observaciones
+              });
 
         return {
           stepName: "cabecera_fat_empresas",
@@ -269,7 +282,7 @@ export default class ProcesarFacturaWorkflow extends WorkflowEntrypoint<Env> {
       }
     });
 
-    return stepRunner.do("lineas_fat_empresas", async () => {
+    const lineas = await stepRunner.do("lineas_fat_empresas", async () => {
       try {
         const entrada = validateLineasInput({
           ro: cabecera.ro,
@@ -324,6 +337,73 @@ export default class ProcesarFacturaWorkflow extends WorkflowEntrypoint<Env> {
         const errorKey = buildErrorPathFromPdfKey(r2Key);
         await putR2(this.env.R2_FACTURAS, errorKey, JSON.stringify(errorPayload, null, 2));
         console.error(`[lineas_fat_empresas] Error en líneas, guardado en ${errorKey}`);
+        throw failure;
+      }
+    });
+
+    return stepRunner.do("validar_fat_empresas", async () => {
+      try {
+        const esperado = await leerImportesCabecera(this.env.DB_FAT_EMPRESAS, lineas.facturaId);
+        const calculado = await sumarImportesLineas(this.env.DB_FAT_EMPRESAS, lineas.facturaId);
+
+        const { ok, diferencias } = compararImportes(esperado, calculado, TOLERANCIA_VALIDACION);
+
+        if (ok) {
+          return {
+            stepName: "validar_fat_empresas",
+            workflowInstanceId: invoiceId,
+            invoiceId,
+            timestamp: new Date().toISOString(),
+            status: "ok",
+            validacionOk: true,
+            facturaId: lineas.facturaId,
+            empresaId: lineas.empresaId,
+            lineasInsertadas: lineas.lineasInsertadas,
+            numeroFacturaNormalizado: lineas.numeroFacturaNormalizado,
+            nombreNormalizadoProveedor: lineas.nombreNormalizadoProveedor,
+            ro: lineas.ro,
+            metadatos
+          };
+        }
+
+        const diferenciaPayload = buildDiferenciaPayload({
+          invoiceId,
+          archivo: { nombre_original: originalFileName, r2_pdf_key: r2Key, file_url: fileUrl },
+          esperado,
+          calculado,
+          diferencias,
+          tolerancia: TOLERANCIA_VALIDACION
+        });
+
+        const diferenciaKey = buildDiferenciaPathFromPdfKey(r2Key);
+        await putR2(this.env.R2_FACTURAS, diferenciaKey, JSON.stringify(diferenciaPayload, null, 2));
+        console.error(`[validar_fat_empresas] Diferencia detectada, guardada en ${diferenciaKey}`);
+        throw new DiferenciaDetectada("Diferencia fuera de tolerancia");
+      } catch (error: any) {
+        if (error instanceof DiferenciaDetectada) {
+          throw error;
+        }
+
+        const failure =
+          error instanceof ValidacionProcesoFailure
+            ? error
+            : new ValidacionProcesoFailure({
+                tipo_error: "fat_factura_consulta",
+                descripcion: error instanceof Error ? error.message : String(error)
+              });
+
+        const errorPayload = buildValidationErrorPayload({
+          tipo_error: (failure as any).tipo_error ?? "error_lectura_r2",
+          descripcion: failure.descripcion,
+          invoiceId,
+          archivo: { nombre_original: originalFileName, r2_pdf_key: r2Key, file_url: fileUrl },
+          campos_faltantes: (failure as any).campos_faltantes,
+          origen: "validar_fat_empresas"
+        });
+
+        const errorKey = buildErrorPathFromPdfKey(r2Key);
+        await putR2(this.env.R2_FACTURAS, errorKey, JSON.stringify(errorPayload, null, 2));
+        console.error(`[validar_fat_empresas] Error de proceso, guardado en ${errorKey}`);
         throw failure;
       }
     });

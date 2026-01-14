@@ -61,19 +61,21 @@ export function normalizeNumeroFactura(numero: string): string {
   return soloAlfanumerico;
 }
 
-export async function ensureFacturaNoDuplicada(db: D1Database, emisorId: number, numero_factura: string) {
+export async function findFacturaIdPorEmisorYNumero(db: D1Database, emisorId: number, numero_factura: string): Promise<number | null> {
   try {
     const result = await db
       .prepare("SELECT id FROM fat_facturas WHERE emisor_id = ? AND numero_factura = ?")
       .bind(emisorId, numero_factura)
       .all();
     const rows = (result as any).results as Array<{ id: number }> | undefined;
-    if (rows && rows.length > 0) {
+    if (!rows || rows.length === 0) return null;
+    if (rows.length > 1) {
       throw new ProveedorFailure({
         tipo_error: "fat_empresas_duplicado",
-        descripcion: "Existe factura duplicada para emisor y numero_factura"
+        descripcion: "Existe más de una factura para el mismo emisor y numero_factura"
       });
     }
+    return rows[0].id;
   } catch (error: any) {
     if (error instanceof ProveedorFailure) throw error;
     throw new ProveedorFailure({ tipo_error: "fat_empresas_consulta", descripcion: error?.message ?? "Error consultando fat_facturas" });
