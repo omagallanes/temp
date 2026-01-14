@@ -1,36 +1,35 @@
 name = "wf-procesar-factura"
 compatibility_date = "2025-09-27"
-usage_model = "standard"
+usage_model = "unbound"
 main = "src/index.ts"
 
-[account]
-# Rellena con tu account id en producción o usa CI secrets
-id = "<CLOUDFLARE_ACCOUNT_ID>"
+# [account]
+# id = "<CLOUDFLARE_ACCOUNT_ID>"
 
-[bindings]
-# Ejemplo de bindings; sustituir IDs por los reales
-[[kv_namespaces]]
-binding = "NSKV_SECRETOS"
-id = "<NSKV_SECRETOS_ID>"
+# IMPORTANTE: Descomentar y configurar los bindings reales antes de desplegar
+# [[kv_namespaces]]
+# binding = "NSKV_SECRETOS"
+# id = "<NSKV_SECRETOS_ID>"
 
-[[kv_namespaces]]
-binding = "NSKV_PROMPTS"
-id = "<NSKV_PROMPTS_ID>"
+# [[kv_namespaces]]
+# binding = "NSKV_PROMPTS"
+# id = "<NSKV_PROMPTS_ID>"
 
-[[r2_buckets]]
-binding = "R2_FACTURAS"
-bucket_name = "<R2_FACTURAS_BUCKET_NAME>"
+# [[r2_buckets]]
+# binding = "R2_FACTURAS"
+# bucket_name = "<R2_FACTURAS_BUCKET_NAME>"
 
-[[d1_databases]]
-binding = "DB_FAT_EMPRESAS"
-database_name = "<D1_FAT_EMPRESAS>"
-database_id = "<D1_FAT_EMPRESAS_ID>"
+# [[d1_databases]]
+# binding = "DB_FAT_EMPRESAS"
+# database_name = "<D1_FAT_EMPRESAS>"
+# database_id = "<D1_FAT_EMPRESAS_ID>"
 
-[workflows]
-# workflow binding (si aplica)
-[[workflows]]
-binding = "WF_PROCESAR_FACTURA"
-workflow = "wf-procesar-factura"
+# [[workflows]]
+# binding = "WF_PROCESAR_FACTURA"
+# class_name = "ProcesarFacturaWorkflow"
+# name = "wf-procesar-factura"
+
+# name = "wf-procesar-factura"
 
 [env.production]
-account_id = "<CLOUDFLARE_ACCOUNT_ID>"
+# account_id = "<CLOUDFLARE_ACCOUNT_ID>"
