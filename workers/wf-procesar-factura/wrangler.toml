@@ -21,6 +21,11 @@ id = "<NSKV_PROMPTS_ID>"
 binding = "R2_FACTURAS"
 bucket_name = "<R2_FACTURAS_BUCKET_NAME>"
 
+[[d1_databases]]
+binding = "DB_FAT_EMPRESAS"
+database_name = "<D1_FAT_EMPRESAS>"
+database_id = "<D1_FAT_EMPRESAS_ID>"
+
 [workflows]
 # workflow binding (si aplica)
 [[workflows]]

@@ -219,11 +219,12 @@ export function buildValidationErrorPayload(params: {
   campos_faltantes?: string[];
   campos_invalidos?: ValidationInvalidField[];
   fecha_error?: string;
+  origen?: string;
 }) {
   return {
     tipo_error: params.tipo_error,
     descripcion: params.descripcion,
-    origen: "lectura-apioresponse",
+    origen: params.origen ?? "lectura-apioresponse",
     invoiceId: params.invoiceId,
     archivo: {
       nombre_original: params.archivo.nombre_original,

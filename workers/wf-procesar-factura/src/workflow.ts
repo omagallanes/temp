@@ -8,6 +8,13 @@ import {
   validateAndNormalizeRO,
   ValidationFailure
 } from "./lib/apioresponse";
+import {
+  buildProveedorErrorPayload,
+  normalizeNombreProveedor,
+  ProveedorFailure,
+  resolveProveedorEmpresa,
+  validateProveedorInput
+} from "./lib/proveedor";
 
 export class ProcesarFacturaWorkflow {
   env: Env;
@@ -83,7 +90,7 @@ export class ProcesarFacturaWorkflow {
       }
     });
 
-    return stepRunner.do("lectura-apioresponse", async () => {
+    const lectura = await stepRunner.do("lectura-apioresponse", async () => {
       try {
         const roRaw = await loadApioResponseOutput(this.env.R2_FACTURAS, invoiceId);
         const ro = validateAndNormalizeRO(roRaw);
@@ -120,6 +127,59 @@ export class ProcesarFacturaWorkflow {
         const errorKey = buildErrorPathFromPdfKey(r2Key);
         await putR2(this.env.R2_FACTURAS, errorKey, JSON.stringify(errorPayload, null, 2));
         console.error(`[lectura-apioresponse] Error validando RO, guardado en ${errorKey}`);
+        throw failure;
+      }
+    });
+
+    const metadatos = {
+      invoiceId,
+      r2_pdf_key: r2Key,
+      file_url: fileUrl,
+      nombre_original: originalFileName,
+      contentType
+    };
+
+    return stepRunner.do("proveedor_fat_empresas", async () => {
+      try {
+        const { ro, metadatos: entradaMetadatos } = validateProveedorInput({ ro: lectura.ro, metadatos });
+        const nombre_normalizado = normalizeNombreProveedor(ro.datos_generales.nombre_proveedor);
+        const empresaId = await resolveProveedorEmpresa(
+          this.env.DB_FAT_EMPRESAS,
+          ro.datos_generales.nif_proveedor,
+          ro.datos_generales.nombre_proveedor,
+          nombre_normalizado
+        );
+
+        return {
+          stepName: "proveedor_fat_empresas",
+          workflowInstanceId: invoiceId,
+          invoiceId,
+          timestamp: new Date().toISOString(),
+          status: "ok",
+          empresaId,
+          ro,
+          metadatos: entradaMetadatos
+        };
+      } catch (error: any) {
+        const failure =
+          error instanceof ProveedorFailure
+            ? error
+            : new ProveedorFailure({
+                tipo_error: "fat_empresas_consulta",
+                descripcion: error instanceof Error ? error.message : String(error)
+              });
+
+        const errorPayload = buildProveedorErrorPayload({
+          tipo_error: failure.tipo_error,
+          descripcion: failure.descripcion,
+          invoiceId,
+          archivo: { nombre_original: originalFileName, r2_pdf_key: r2Key, file_url: fileUrl },
+          issues: failure.issues
+        });
+
+        const errorKey = buildErrorPathFromPdfKey(r2Key);
+        await putR2(this.env.R2_FACTURAS, errorKey, JSON.stringify(errorPayload, null, 2));
+        console.error(`[proveedor_fat_empresas] Error resolviendo proveedor, guardado en ${errorKey}`);
         throw failure;
       }
     });
