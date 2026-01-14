@@ -1,3 +1,4 @@
+import { WorkflowEntrypoint } from "cloudflare:workers";
 import { Env } from "./types/env";
 import { callOpenAI } from "./lib/openai";
 import { putR2, getKV } from "./lib/storage";
@@ -16,12 +17,7 @@ import {
   validateProveedorInput
 } from "./lib/proveedor";
 
-export class ProcesarFacturaWorkflow {
-  env: Env;
-  constructor(env: Env) {
-    this.env = env;
-  }
-
+export default class ProcesarFacturaWorkflow extends WorkflowEntrypoint<Env> {
   async run(event: any, step: any) {
     const { invoiceId, fileUrl, r2Key, originalFileName, contentType } = event.payload;
     const stepRunner = step?.do
@@ -34,13 +30,26 @@ export class ProcesarFacturaWorkflow {
 
     await stepRunner.do("wf-facturas-extraer-texto", async () => {
       try {
+        // Descargar PDF desde fileUrl y subirlo a R2
+        console.log(`[P1] Descargando PDF desde ${fileUrl}`);
+        const pdfResponse = await fetch(fileUrl);
+        if (!pdfResponse.ok) {
+          throw new Error(`Error descargando PDF: ${pdfResponse.status} ${pdfResponse.statusText}`);
+        }
+        const pdfBuffer = await pdfResponse.arrayBuffer();
+        await putR2(this.env.R2_FACTURAS, r2Key, pdfBuffer as any);
+        console.log(`[P1] PDF subido a R2: ${r2Key}`);
+
+        // URL pública de R2
+        const r2PublicUrl = `https://pub-4e5e6e57e45848fbbbec281180517b6e.r2.dev/${r2Key}`;
+
         const apiKey = await getKV(this.env.NSKV_SECRETOS, "OPENAI_API_KEY");
         if (!apiKey) throw new Error("OPENAI_API_KEY no encontrada en NSKV_SECRETOS");
 
         const plantilla = await getKV(this.env.NSKV_PROMPTS, "facturas-extraer-texto");
         if (!plantilla) throw new Error("Plantilla facturas-extraer-texto no encontrada en NSKV_PROMPTS");
 
-        const plantillaProcesada = plantilla.replace(/\{\{ARCHIVO_URL\}\}/g, fileUrl);
+        const plantillaProcesada = plantilla.replace(/\{\{ARCHIVO_URL\}\}/g, r2PublicUrl);
         let requestBody;
         try {
           requestBody = JSON.parse(plantillaProcesada);
@@ -185,5 +194,3 @@ export class ProcesarFacturaWorkflow {
     });
   }
 }
-
-export default ProcesarFacturaWorkflow;

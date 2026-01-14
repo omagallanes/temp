@@ -1,9 +1,5 @@
 # Ignore files that may contain secrets
-.env
-.env.local
 secrets/
 
-# Keep the example files in the repo
-!.env.example
 README.md
 check_cloudflare.sh

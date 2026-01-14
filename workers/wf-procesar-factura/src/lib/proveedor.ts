@@ -121,7 +121,7 @@ export function normalizeNombreProveedor(nombre: string): string {
 
 export async function findEmpresaIdByNif(db: D1Database, nif: string): Promise<number | null> {
   try {
-    const result = await db.prepare("SELECT id FROM fat_empresas WHERE nif_proveedor = ?").all(nif);
+    const result = await db.prepare("SELECT id FROM fat_empresas WHERE nif_proveedor = ?").bind(nif).all();
     const rows = (result as any).results as Array<{ id: number }> | undefined;
     if (!rows || rows.length === 0) return null;
     if (rows.length > 1) {
@@ -144,7 +144,7 @@ export async function insertEmpresa(
   try {
     const result = await db.prepare(
       "INSERT INTO fat_empresas (nif_proveedor, nombre_proveedor, nombre_normalizado) VALUES (?, ?, ?) RETURNING id"
-    ).all(params.nif_proveedor, params.nombre_proveedor, params.nombre_normalizado);
+    ).bind(params.nif_proveedor, params.nombre_proveedor, params.nombre_normalizado).all();
     const rows = (result as any).results as Array<{ id: number }> | undefined;
     if (rows && rows.length > 0 && typeof rows[0].id === "number") return rows[0].id;
 

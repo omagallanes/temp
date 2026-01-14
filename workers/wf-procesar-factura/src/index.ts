@@ -1,4 +1,5 @@
 import { Env } from "./types/env";
+import ProcesarFacturaWorkflow from "./workflow";
 
 export default {
   async fetch(request: Request, env: Env) {
@@ -19,3 +20,5 @@ export default {
     return new Response(JSON.stringify({ workflow: "wf-procesar-factura", instancia_id: instance.id }), { headers: { "Content-Type": "application/json" } });
   }
 };
+
+export { ProcesarFacturaWorkflow };

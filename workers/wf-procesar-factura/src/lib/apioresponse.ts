@@ -103,7 +103,28 @@ export async function loadApioResponseOutput(r2: any, invoiceId: string) {
       descripcion: "apioResponse.output no existe en el documento R2"
     });
   }
-  return documento.apioResponse.output;
+
+  let output = documento.apioResponse.output;
+
+  // Si output es un array (respuesta de OpenAI con output[0].content[0].text), extraer el JSON
+  if (Array.isArray(output) && output.length > 0) {
+    const firstItem = output[0];
+    if (firstItem?.content && Array.isArray(firstItem.content) && firstItem.content.length > 0) {
+      const textContent = firstItem.content[0];
+      if (textContent?.text && typeof textContent.text === "string") {
+        try {
+          output = JSON.parse(textContent.text);
+        } catch (e) {
+          throw new ValidationFailure({
+            tipo_error: "estructura_ro_invalida",
+            descripcion: `No se pudo parsear el JSON en output[0].content[0].text: ${e}`
+          });
+        }
+      }
+    }
+  }
+
+  return output;
 }
 
 export function validateAndNormalizeRO(ro: any): RO {

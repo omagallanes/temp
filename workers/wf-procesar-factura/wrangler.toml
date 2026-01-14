@@ -3,33 +3,25 @@ compatibility_date = "2025-09-27"
 usage_model = "unbound"
 main = "src/index.ts"
 
-# [account]
-# id = "<CLOUDFLARE_ACCOUNT_ID>"
+[[kv_namespaces]]
+binding = "NSKV_SECRETOS"
+id = "5a55872de9504ce2b11ec16d6d0b6621"
 
-# IMPORTANTE: Descomentar y configurar los bindings reales antes de desplegar
-# [[kv_namespaces]]
-# binding = "NSKV_SECRETOS"
-# id = "<NSKV_SECRETOS_ID>"
+[[kv_namespaces]]
+binding = "NSKV_PROMPTS"
+id = "f7e60e8e34bb4e8ea443cd59105fcbd6"
 
-# [[kv_namespaces]]
-# binding = "NSKV_PROMPTS"
-# id = "<NSKV_PROMPTS_ID>"
+[[r2_buckets]]
+binding = "R2_FACTURAS"
+bucket_name = "r2-facturas-archivos"
 
-# [[r2_buckets]]
-# binding = "R2_FACTURAS"
-# bucket_name = "<R2_FACTURAS_BUCKET_NAME>"
+[[d1_databases]]
+binding = "DB_FAT_EMPRESAS"
+database_name = "d1-facturas-db"
+database_id = "399611ab-ab7d-4df5-bf6f-e525f2144c8a"
 
-# [[d1_databases]]
-# binding = "DB_FAT_EMPRESAS"
-# database_name = "<D1_FAT_EMPRESAS>"
-# database_id = "<D1_FAT_EMPRESAS_ID>"
-
-# [[workflows]]
-# binding = "WF_PROCESAR_FACTURA"
-# class_name = "ProcesarFacturaWorkflow"
-# name = "wf-procesar-factura"
-
-# name = "wf-procesar-factura"
-
-[env.production]
-# account_id = "<CLOUDFLARE_ACCOUNT_ID>"
+[[workflows]]
+binding = "WF_PROCESAR_FACTURA"
+class_name = "ProcesarFacturaWorkflow"
+name = "wf-procesar-factura"
+script_name = "wf-procesar-factura"

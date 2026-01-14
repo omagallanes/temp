@@ -43,8 +43,8 @@ npx wrangler login
 O usando variables de entorno:
 
 ```bash
-export CLOUDFLARE_API_TOKEN="tu-api-token"
-export CLOUDFLARE_ACCOUNT_ID="tu-account-id"
+export CLOUDFLARE_API_TOKEN="yLU4KESlTZfZN0Bb-lSRwTgJ0zDgFZ-q3T2BIR6c"
+export CLOUDFLARE_ACCOUNT_ID="15415870ae5f154bf2baf3f835300403"
 ```
 
 ### 3. Obtener IDs de recursos
