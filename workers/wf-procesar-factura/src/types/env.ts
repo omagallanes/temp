@@ -1,4 +1,4 @@
-import { R2Bucket, D1Database } from "@cloudflare/workers-types";
+import type { R2Bucket, D1Database } from "@cloudflare/workers-types";
 
 export type MetadatosLectura = {
   invoiceId: string;
@@ -8,7 +8,7 @@ export type MetadatosLectura = {
   contentType: string;
 };
 
-export interface EnvBindings {
+export interface Env {
   NSKV_SECRETOS: KVNamespace;
   NSKV_PROMPTS: KVNamespace;
   R2_FACTURAS: R2Bucket;
@@ -17,13 +17,3 @@ export interface EnvBindings {
     create: (opts: { id: string; params?: any }) => Promise<{ id: string }>;
   };
 }
-
-export type Env = EnvBindings;
-
-declare global {
-  // Keep global Env for runtime bindings while allowing module imports
-  // eslint-disable-next-line @typescript-eslint/no-empty-interface
-  interface Env extends EnvBindings {}
-}
-
-export {};

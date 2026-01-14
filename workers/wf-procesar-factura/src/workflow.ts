@@ -19,7 +19,7 @@ import {
 import {
   validateCabeceraInput,
   normalizeNumeroFactura,
-  findFacturaIdPorEmisorYNumero,
+  overwriteFacturaSiExiste,
   insertarCabeceraFactura
 } from "./lib/cabecera";
 import {
@@ -28,16 +28,16 @@ import {
   insertarLineasFactura,
   LineasFailure
 } from "./lib/lineas";
+import { upsertFacturasArchivos } from "./lib/archivos";
 import {
-  leerImportesCabecera,
-  sumarImportesLineas,
-  compararImportes,
-  TOLERANCIA_VALIDACION,
-  buildDiferenciaPayload,
-  buildDiferenciaPathFromPdfKey,
-  ValidacionProcesoFailure,
-  DiferenciaDetectada
-} from "./lib/validacion";
+  buildExcelBuffer,
+  obtenerCabeceraFacturaExcel,
+  obtenerLineasFacturaExcel,
+  putExcelInR2
+} from "./lib/excel";
+
+const ESTADO_VALIDACION_PENDIENTE = "pendiente";
+const ESTADO_VALIDACION_VALIDADA = "validada";
 
 export default class ProcesarFacturaWorkflow extends WorkflowEntrypoint<Env> {
   async run(event: any, step: any) {
@@ -189,7 +189,8 @@ export default class ProcesarFacturaWorkflow extends WorkflowEntrypoint<Env> {
           status: "ok",
           empresaId,
           ro,
-          metadatos: entradaMetadatos
+          metadatos: entradaMetadatos,
+          nombreNormalizadoProveedor: nombre_normalizado
         };
       } catch (error: any) {
         const failure =
@@ -217,35 +218,24 @@ export default class ProcesarFacturaWorkflow extends WorkflowEntrypoint<Env> {
 
     const cabecera = await stepRunner.do("cabecera_fat_empresas", async () => {
       try {
-        const entrada = validateCabeceraInput({
-          ro: lectura.ro,
-          metadatos,
-          empresaId: proveedor.empresaId
-        });
+        const entrada = validateCabeceraInput({ ro: lectura.ro, metadatos, empresaId: proveedor.empresaId });
 
         const numero_factura_normalizado = normalizeNumeroFactura(entrada.ro.datos_generales.numero_factura);
 
-        const facturaExistenteId = await findFacturaIdPorEmisorYNumero(
-          this.env.DB_FAT_EMPRESAS,
-          proveedor.empresaId,
-          entrada.ro.datos_generales.numero_factura
-        );
+        await overwriteFacturaSiExiste(this.env.DB_FAT_EMPRESAS, proveedor.empresaId, entrada.ro.datos_generales.numero_factura);
 
-        const facturaId =
-          facturaExistenteId !== null
-            ? facturaExistenteId
-            : await insertarCabeceraFactura(this.env.DB_FAT_EMPRESAS, {
-                emisor_id: proveedor.empresaId,
-                numero_factura: entrada.ro.datos_generales.numero_factura,
-                numero_factura_normalizado,
-                fecha_emision: entrada.ro.datos_generales.fecha_emision,
-                moneda: entrada.ro.datos_generales.moneda,
-                importe_base_total: entrada.ro.datos_generales.importe_base_total,
-                importe_impuestos_total: entrada.ro.datos_generales.importe_impuestos_total,
-                importe_retencion_total: entrada.ro.datos_generales.importe_retencion_total,
-                importe_total: entrada.ro.datos_generales.importe_total,
-                observaciones: entrada.ro.datos_generales.observaciones
-              });
+        const facturaId = await insertarCabeceraFactura(this.env.DB_FAT_EMPRESAS, {
+          emisor_id: proveedor.empresaId,
+          numero_factura: entrada.ro.datos_generales.numero_factura,
+          numero_factura_normalizado,
+          fecha_emision: entrada.ro.datos_generales.fecha_emision,
+          moneda: entrada.ro.datos_generales.moneda,
+          importe_base_total: entrada.ro.datos_generales.importe_base_total,
+          importe_impuestos_total: entrada.ro.datos_generales.importe_impuestos_total,
+          importe_retencion_total: entrada.ro.datos_generales.importe_retencion_total,
+          importe_total: entrada.ro.datos_generales.importe_total,
+          observaciones: entrada.ro.datos_generales.observaciones
+        });
 
         return {
           stepName: "cabecera_fat_empresas",
@@ -257,7 +247,8 @@ export default class ProcesarFacturaWorkflow extends WorkflowEntrypoint<Env> {
           numeroFacturaNormalizado: numero_factura_normalizado,
           empresaId: proveedor.empresaId,
           ro: entrada.ro,
-          metadatos
+          metadatos,
+          nombreNormalizadoProveedor: proveedor.nombreNormalizadoProveedor
         };
       } catch (error: any) {
         const failure =
@@ -282,6 +273,43 @@ export default class ProcesarFacturaWorkflow extends WorkflowEntrypoint<Env> {
       }
     });
 
+    const archivosMetadatos = await stepRunner.do("fat_facturas_archivos", async () => {
+      try {
+        await upsertFacturasArchivos(this.env.DB_FAT_EMPRESAS, {
+          factura_id: cabecera.facturaId,
+          invoiceId,
+          r2_pdf_key: metadatos.r2_pdf_key,
+          original_file_name: metadatos.nombre_original,
+          file_url: metadatos.file_url,
+          estado_validacion: ESTADO_VALIDACION_PENDIENTE,
+          r2_excel_key: null
+        });
+
+        return {
+          stepName: "fat_facturas_archivos",
+          workflowInstanceId: invoiceId,
+          invoiceId,
+          timestamp: new Date().toISOString(),
+          status: "ok",
+          facturaId: cabecera.facturaId,
+          metadatos
+        };
+      } catch (error: any) {
+        const errorPayload = buildValidationErrorPayload({
+          tipo_error: "estructura_ro_invalida",
+          descripcion: error?.message ?? "Error guardando metadatos de factura",
+          invoiceId,
+          archivo: { nombre_original: originalFileName, r2_pdf_key: r2Key, file_url: fileUrl },
+          origen: "fat_facturas_archivos"
+        });
+
+        const errorKey = buildErrorPathFromPdfKey(r2Key);
+        await putR2(this.env.R2_FACTURAS, errorKey, JSON.stringify(errorPayload, null, 2));
+        console.error(`[fat_facturas_archivos] Error guardando metadatos, guardado en ${errorKey}`);
+        throw error;
+      }
+    });
+
     const lineas = await stepRunner.do("lineas_fat_empresas", async () => {
       try {
         const entrada = validateLineasInput({
@@ -290,7 +318,7 @@ export default class ProcesarFacturaWorkflow extends WorkflowEntrypoint<Env> {
           empresaId: cabecera.empresaId,
           facturaId: cabecera.facturaId,
           numeroFacturaNormalizado: cabecera.numeroFacturaNormalizado,
-          nombreNormalizadoProveedor: (cabecera as any).nombreNormalizadoProveedor
+          nombreNormalizadoProveedor: cabecera.nombreNormalizadoProveedor
         });
 
         await borrarLineasFactura(this.env.DB_FAT_EMPRESAS, entrada.facturaId);
@@ -341,71 +369,65 @@ export default class ProcesarFacturaWorkflow extends WorkflowEntrypoint<Env> {
       }
     });
 
-    return stepRunner.do("validar_fat_empresas", async () => {
+    return stepRunner.do("excel_fat_empresas", async () => {
       try {
-        const esperado = await leerImportesCabecera(this.env.DB_FAT_EMPRESAS, lineas.facturaId);
-        const calculado = await sumarImportesLineas(this.env.DB_FAT_EMPRESAS, lineas.facturaId);
+        const cabeceraExcel = await obtenerCabeceraFacturaExcel(this.env.DB_FAT_EMPRESAS, lineas.empresaId, lineas.facturaId);
+        const lineasExcel = await obtenerLineasFacturaExcel(this.env.DB_FAT_EMPRESAS, lineas.facturaId);
+        const nombreHoja = cabeceraExcel.numero_factura_normalizado;
+        const excelBuffer = buildExcelBuffer(cabeceraExcel, lineasExcel, nombreHoja);
 
-        const { ok, diferencias } = compararImportes(esperado, calculado, TOLERANCIA_VALIDACION);
+        const excelKey = buildExcelKeyFromPdfKey(
+          metadatos.r2_pdf_key,
+          lineas.nombreNormalizadoProveedor ?? cabeceraExcel.nombre_proveedor,
+          lineas.numeroFacturaNormalizado
+        );
 
-        if (ok) {
-          return {
-            stepName: "validar_fat_empresas",
-            workflowInstanceId: invoiceId,
-            invoiceId,
-            timestamp: new Date().toISOString(),
-            status: "ok",
-            validacionOk: true,
-            facturaId: lineas.facturaId,
-            empresaId: lineas.empresaId,
-            lineasInsertadas: lineas.lineasInsertadas,
-            numeroFacturaNormalizado: lineas.numeroFacturaNormalizado,
-            nombreNormalizadoProveedor: lineas.nombreNormalizadoProveedor,
-            ro: lineas.ro,
-            metadatos
-          };
-        }
+        await putExcelInR2(this.env.R2_FACTURAS, excelKey, excelBuffer);
 
-        const diferenciaPayload = buildDiferenciaPayload({
+        await upsertFacturasArchivos(this.env.DB_FAT_EMPRESAS, {
+          factura_id: lineas.facturaId,
           invoiceId,
-          archivo: { nombre_original: originalFileName, r2_pdf_key: r2Key, file_url: fileUrl },
-          esperado,
-          calculado,
-          diferencias,
-          tolerancia: TOLERANCIA_VALIDACION
+          r2_pdf_key: metadatos.r2_pdf_key,
+          original_file_name: metadatos.nombre_original,
+          file_url: metadatos.file_url,
+          estado_validacion: ESTADO_VALIDACION_VALIDADA,
+          r2_excel_key: excelKey
         });
 
-        const diferenciaKey = buildDiferenciaPathFromPdfKey(r2Key);
-        await putR2(this.env.R2_FACTURAS, diferenciaKey, JSON.stringify(diferenciaPayload, null, 2));
-        console.error(`[validar_fat_empresas] Diferencia detectada, guardada en ${diferenciaKey}`);
-        throw new DiferenciaDetectada("Diferencia fuera de tolerancia");
+        return {
+          stepName: "excel_fat_empresas",
+          workflowInstanceId: invoiceId,
+          invoiceId,
+          timestamp: new Date().toISOString(),
+          status: "ok",
+          excelKey,
+          facturaId: lineas.facturaId,
+          numeroFacturaNormalizado: lineas.numeroFacturaNormalizado,
+          nombreNormalizadoProveedor: lineas.nombreNormalizadoProveedor,
+          metadatos,
+          archivosMetadatos
+        };
       } catch (error: any) {
-        if (error instanceof DiferenciaDetectada) {
-          throw error;
-        }
-
-        const failure =
-          error instanceof ValidacionProcesoFailure
-            ? error
-            : new ValidacionProcesoFailure({
-                tipo_error: "fat_factura_consulta",
-                descripcion: error instanceof Error ? error.message : String(error)
-              });
-
+        const message = error instanceof Error ? error.message : String(error);
         const errorPayload = buildValidationErrorPayload({
-          tipo_error: (failure as any).tipo_error ?? "error_lectura_r2",
-          descripcion: failure.descripcion,
+          tipo_error: "error_lectura_r2",
+          descripcion: message,
           invoiceId,
           archivo: { nombre_original: originalFileName, r2_pdf_key: r2Key, file_url: fileUrl },
-          campos_faltantes: (failure as any).campos_faltantes,
-          origen: "validar_fat_empresas"
+          origen: "excel_fat_empresas"
         });
 
         const errorKey = buildErrorPathFromPdfKey(r2Key);
         await putR2(this.env.R2_FACTURAS, errorKey, JSON.stringify(errorPayload, null, 2));
-        console.error(`[validar_fat_empresas] Error de proceso, guardado en ${errorKey}`);
-        throw failure;
+        console.error(`[excel_fat_empresas] Error generando Excel, guardado en ${errorKey}`);
+        throw error;
       }
     });
   }
+}
+
+function buildExcelKeyFromPdfKey(r2PdfKey: string, nombreNormalizadoProveedor: string, numeroFacturaNormalizado: string) {
+  const lastSlash = r2PdfKey.lastIndexOf("/");
+  const base = lastSlash === -1 ? "" : `${r2PdfKey.slice(0, lastSlash + 1)}`;
+  return `${base}${nombreNormalizadoProveedor}_${numeroFacturaNormalizado}.xlsx`;
 }
