@@ -16,6 +16,12 @@ import {
   resolveProveedorEmpresa,
   validateProveedorInput
 } from "./lib/proveedor";
+import {
+  validateCabeceraInput,
+  normalizeNumeroFactura,
+  ensureFacturaNoDuplicada,
+  insertarCabeceraFactura
+} from "./lib/cabecera";
 
 export default class ProcesarFacturaWorkflow extends WorkflowEntrypoint<Env> {
   async run(event: any, step: any) {
@@ -148,7 +154,7 @@ export default class ProcesarFacturaWorkflow extends WorkflowEntrypoint<Env> {
       contentType
     };
 
-    return stepRunner.do("proveedor_fat_empresas", async () => {
+    const proveedor = await stepRunner.do("proveedor_fat_empresas", async () => {
       try {
         const { ro, metadatos: entradaMetadatos } = validateProveedorInput({ ro: lectura.ro, metadatos });
         const nombre_normalizado = normalizeNombreProveedor(ro.datos_generales.nombre_proveedor);
@@ -189,6 +195,70 @@ export default class ProcesarFacturaWorkflow extends WorkflowEntrypoint<Env> {
         const errorKey = buildErrorPathFromPdfKey(r2Key);
         await putR2(this.env.R2_FACTURAS, errorKey, JSON.stringify(errorPayload, null, 2));
         console.error(`[proveedor_fat_empresas] Error resolviendo proveedor, guardado en ${errorKey}`);
+        throw failure;
+      }
+    });
+
+    return stepRunner.do("cabecera_fat_empresas", async () => {
+      try {
+        const entrada = validateCabeceraInput({
+          ro: lectura.ro,
+          metadatos,
+          empresaId: proveedor.empresaId
+        });
+
+        const numero_factura_normalizado = normalizeNumeroFactura(entrada.ro.datos_generales.numero_factura);
+
+        await ensureFacturaNoDuplicada(
+          this.env.DB_FAT_EMPRESAS,
+          proveedor.empresaId,
+          entrada.ro.datos_generales.numero_factura
+        );
+
+        const facturaId = await insertarCabeceraFactura(this.env.DB_FAT_EMPRESAS, {
+          emisor_id: proveedor.empresaId,
+          numero_factura: entrada.ro.datos_generales.numero_factura,
+          numero_factura_normalizado,
+          fecha_emision: entrada.ro.datos_generales.fecha_emision,
+          moneda: entrada.ro.datos_generales.moneda,
+          importe_base_total: entrada.ro.datos_generales.importe_base_total,
+          importe_impuestos_total: entrada.ro.datos_generales.importe_impuestos_total,
+          importe_retencion_total: entrada.ro.datos_generales.importe_retencion_total,
+          importe_total: entrada.ro.datos_generales.importe_total,
+          observaciones: entrada.ro.datos_generales.observaciones
+        });
+
+        return {
+          stepName: "cabecera_fat_empresas",
+          workflowInstanceId: invoiceId,
+          invoiceId,
+          timestamp: new Date().toISOString(),
+          status: "ok",
+          facturaId,
+          numeroFacturaNormalizado: numero_factura_normalizado,
+          empresaId: proveedor.empresaId,
+          ro: entrada.ro,
+          metadatos
+        };
+      } catch (error: any) {
+        const failure =
+          error instanceof ValidationFailure || error instanceof ProveedorFailure
+            ? error
+            : new ValidationFailure({ tipo_error: "error_lectura_r2", descripcion: error instanceof Error ? error.message : String(error) });
+
+        const errorPayload = buildValidationErrorPayload({
+          tipo_error: (failure as any).tipo_error ?? "error_lectura_r2",
+          descripcion: failure.message,
+          invoiceId,
+          archivo: { nombre_original: originalFileName, r2_pdf_key: r2Key, file_url: fileUrl },
+          campos_faltantes: (failure as any).campos_faltantes,
+          campos_invalidos: (failure as any).campos_invalidos,
+          origen: "cabecera_fat_empresas"
+        });
+
+        const errorKey = buildErrorPathFromPdfKey(r2Key);
+        await putR2(this.env.R2_FACTURAS, errorKey, JSON.stringify(errorPayload, null, 2));
+        console.error(`[cabecera_fat_empresas] Error en cabecera, guardado en ${errorKey}`);
         throw failure;
       }
     });
