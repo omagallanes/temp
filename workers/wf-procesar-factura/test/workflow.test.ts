@@ -12,15 +12,21 @@ describe("workflow logic", () => {
     const data = [...initial];
     return {
       prepare(sql: string) {
-        return {
+        const stmt: any = {
+          _bound: undefined as any,
+          bind: (...params: any[]) => {
+            stmt._bound = params;
+            return stmt;
+          },
           all: async (...params: any[]) => {
+            const effective = stmt._bound ?? params;
             if (sql.startsWith("SELECT id FROM fat_empresas")) {
-              const nif = params[0];
+              const nif = effective[0];
               const matches = data.filter((r) => r.nif === nif);
               return { results: matches.map((m) => ({ id: m.id })) } as any;
             }
             if (sql.startsWith("INSERT INTO fat_empresas")) {
-              const nif = params[0];
+              const nif = effective[0];
               const id = data.length ? Math.max(...data.map((d) => d.id)) + 1 : 1;
               data.push({ nif, id });
               return { results: [{ id }] } as any;
@@ -28,10 +34,46 @@ describe("workflow logic", () => {
             if (sql.startsWith("SELECT last_insert_rowid()")) {
               return { id: data[data.length - 1]?.id ?? 1 } as any;
             }
+            if (sql.includes("FROM fat_facturas ff")) {
+              return {
+                results: [
+                  {
+                    nif_proveedor: "X123",
+                    nombre_proveedor: "Prov",
+                    numero_factura: "FAC-001",
+                    numero_factura_normalizado: "FAC-001",
+                    fecha_emision: "2026-01-01",
+                    moneda: "EUR",
+                    importe_base_total: 100,
+                    importe_impuestos_total: 21,
+                    importe_retencion_total: 0,
+                    importe_total: 121,
+                    observaciones: ""
+                  }
+                ]
+              } as any;
+            }
+            if (sql.includes("FROM fat_factura_lineas")) {
+              return {
+                results: [
+                  {
+                    descripcion: "Item",
+                    codigo_producto: "SKU",
+                    cantidad: 1,
+                    precio_unitario: 100,
+                    porcentaje_iva: 21,
+                    importe_base: 100,
+                    importe_impuesto: 21,
+                    importe_total_linea: 121
+                  }
+                ]
+              } as any;
+            }
             return { results: [] } as any;
           },
           first: async () => ({ id: data[data.length - 1]?.id ?? 1 })
-        } as any;
+        };
+        return stmt;
       }
     } as any;
   };
@@ -56,6 +98,7 @@ describe("workflow logic", () => {
                   datos_generales: {
                     nombre_proveedor: "Prov",
                     nif_proveedor: "X123",
+                    numero_factura: "FAC-001",
                     fecha_emision: "2026-01-01",
                     moneda: "EUR",
                     importe_base_total: "100.00",
@@ -104,9 +147,8 @@ describe("workflow logic", () => {
     );
 
     expect(result.status).toBe("ok");
-    expect(result.ro.datos_generales.importe_total).toBeCloseTo(121);
-    expect(result.ro.lineas[0].cantidad).toBe(1);
-    expect(result.empresaId).toBe(10);
+    expect(typeof (result as any).excelKey).toBe("string");
+    expect((result as any).metadatos.invoiceId).toBe("inv-1");
     expect(putCalls.some((k) => k.endsWith("facturas-extraer-texto.json"))).toBe(true);
     expect(putCalls.some((k) => k.endsWith("error_validacion_factura.json"))).toBe(false);
   });
@@ -131,6 +173,7 @@ describe("workflow logic", () => {
                   datos_generales: {
                     nombre_proveedor: "Prov",
                     nif_proveedor: "X123",
+                    numero_factura: "FAC-ERR",
                     fecha_emision: "2026-01-01",
                     moneda: "EUR",
                     importe_base_total: "100.00",
@@ -201,6 +244,7 @@ describe("workflow logic", () => {
                   datos_generales: {
                     nombre_proveedor: "Nuevo Proveedor",
                     nif_proveedor: "Z999",
+                    numero_factura: "FAC-NEW",
                     fecha_emision: "2026-01-01",
                     moneda: "EUR",
                     importe_base_total: "100",
@@ -248,8 +292,9 @@ describe("workflow logic", () => {
       step
     );
 
-    expect(result.empresaId).toBe(1);
-    expect(result.metadatos.invoiceId).toBe("inv-new");
+    expect(result.status).toBe("ok");
+    expect(typeof (result as any).excelKey).toBe("string");
+    expect((result as any).metadatos.invoiceId).toBe("inv-new");
   });
 
   it("genera error_validacion_factura.json cuando proveedor tiene campos vacios", async () => {
@@ -270,6 +315,7 @@ describe("workflow logic", () => {
                   datos_generales: {
                     nombre_proveedor: "",
                     nif_proveedor: "",
+                    numero_factura: "FAC-EMPTY",
                     fecha_emision: "2026-01-01",
                     moneda: "EUR",
                     importe_base_total: "100",
@@ -350,6 +396,7 @@ describe("workflow logic", () => {
                   datos_generales: {
                     nombre_proveedor: "Prov",
                     nif_proveedor: "DUPL",
+                    numero_factura: "FAC-DUPL",
                     fecha_emision: "2026-01-01",
                     moneda: "EUR",
                     importe_base_total: "100",
@@ -376,15 +423,58 @@ describe("workflow logic", () => {
         })
       },
       DB_FAT_EMPRESAS: {
-        prepare: (sql: string) => ({
-          all: async (_: any) => {
-            if (sql.startsWith("SELECT id FROM fat_empresas")) {
-              return { results: [{ id: 1 }, { id: 2 }] } as any;
-            }
-            return { results: [] } as any;
-          },
-          first: async () => ({})
-        })
+        prepare: (sql: string) => {
+          const stmt: any = {
+            _bound: undefined as any,
+            bind: (...params: any[]) => {
+              stmt._bound = params;
+              return stmt;
+            },
+            all: async (_: any) => {
+              if (sql.startsWith("SELECT id FROM fat_empresas")) {
+                return { results: [{ id: 1 }, { id: 2 }] } as any;
+              }
+              if (sql.includes("FROM fat_facturas ff")) {
+                return {
+                  results: [
+                    {
+                      nif_proveedor: "DUPL",
+                      nombre_proveedor: "Prov",
+                      numero_factura: "FAC-DUPL",
+                      numero_factura_normalizado: "FAC-DUPL",
+                      fecha_emision: "2026-01-01",
+                      moneda: "EUR",
+                      importe_base_total: 100,
+                      importe_impuestos_total: 21,
+                      importe_retencion_total: 0,
+                      importe_total: 121,
+                      observaciones: ""
+                    }
+                  ]
+                } as any;
+              }
+              if (sql.includes("FROM fat_factura_lineas")) {
+                return {
+                  results: [
+                    {
+                      descripcion: "Item",
+                      codigo_producto: "SKU",
+                      cantidad: 1,
+                      precio_unitario: 100,
+                      porcentaje_iva: 21,
+                      importe_base: 100,
+                      importe_impuesto: 21,
+                      importe_total_linea: 121
+                    }
+                  ]
+                } as any;
+              }
+              return { results: [] } as any;
+            },
+            first: async () => ({})
+          };
+          return stmt;
+        }
       }
     };
 

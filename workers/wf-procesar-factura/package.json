@@ -11,6 +11,7 @@
     "deploy": "wrangler publish --env production"
   },
   "dependencies": {
+    "postal-mime": "^2.3.0",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
