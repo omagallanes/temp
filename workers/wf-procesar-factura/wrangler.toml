@@ -1,7 +1,7 @@
 name = "wf-procesar-factura"
 compatibility_date = "2025-09-27"
-usage_model = "unbound"
 main = "src/index.ts"
+account_id = "15415870ae5f154bf2baf3f835300403"
 
 [[kv_namespaces]]
 binding = "NSKV_SECRETOS"
@@ -10,6 +10,10 @@ id = "5a55872de9504ce2b11ec16d6d0b6621"
 [[kv_namespaces]]
 binding = "NSKV_PROMPTS"
 id = "f7e60e8e34bb4e8ea443cd59105fcbd6"
+
+[[kv_namespaces]]
+binding = "NSKV_VARIABLES"
+id = "c314763f6f3041d48039499a3ce16f7c"
 
 [[r2_buckets]]
 binding = "R2_FACTURAS"
@@ -25,3 +29,12 @@ binding = "WF_PROCESAR_FACTURA"
 class_name = "ProcesarFacturaWorkflow"
 name = "wf-procesar-factura"
 script_name = "wf-procesar-factura"
+
+[observability]
+enabled = true
+
+[observability.logs]
+enabled = true
+
+[observability.traces]
+enabled = true

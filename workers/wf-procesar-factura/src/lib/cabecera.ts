@@ -74,6 +74,12 @@ export async function overwriteFacturaSiExiste(db: D1Database, emisorId: number,
 
     const facturaId = rows[0].id;
 
+    // Borrar registros en fat_facturas_archivos que referencian a esta factura
+    const deleteArchivos = await db.prepare("DELETE FROM fat_facturas_archivos WHERE factura_id = ?").bind(facturaId).all();
+    if ((deleteArchivos as any).error) {
+      throw new ProveedorFailure({ tipo_error: "fat_empresas_insercion", descripcion: (deleteArchivos as any).error });
+    }
+
     const deleteLineas = await db.prepare("DELETE FROM fat_factura_lineas WHERE factura_id = ?").bind(facturaId).all();
     if ((deleteLineas as any).error) {
       throw new ProveedorFailure({ tipo_error: "fat_empresas_insercion", descripcion: (deleteLineas as any).error });

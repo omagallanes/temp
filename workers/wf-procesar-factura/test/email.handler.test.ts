@@ -17,7 +17,10 @@ describe("email handler", () => {
     create = vi.fn(async ({ id }: { id: string; params: any }) => ({ id: `wf-${id}` }));
     env = {
       R2_FACTURAS: { put },
-      WF_PROCESAR_FACTURA: { create }
+      WF_PROCESAR_FACTURA: { create },
+      NSKV_SECRETOS: {
+        get: async (key: string) => (key === "R2_FACTURAS_PREFIX" ? "facturas" : null)
+      }
     } as any;
   });
 
@@ -41,7 +44,7 @@ describe("email handler", () => {
     expect(put).toHaveBeenCalledTimes(1);
     const putArgs = put.mock.calls[0];
     const r2Key = putArgs[0];
-    expect(r2Key).toMatch(/^email\//);
+  expect(r2Key).toMatch(/^facturas\//);
     expect(create).toHaveBeenCalledTimes(1);
     const params = create.mock.calls[0][0].params;
     expect(params.originalFileName).toBe("factura.pdf");

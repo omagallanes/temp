@@ -26,6 +26,7 @@ export class ProveedorFailure extends Error {
     | "fat_empresas_duplicado"
     | "fat_empresas_insercion"
     | "fat_empresas_consulta"
+    | "fat_empresas_mismatch"
     | "nombre_normalizado_vacio";
   descripcion: string;
   issues: ProveedorValidationIssue[];
@@ -119,10 +120,12 @@ export function normalizeNombreProveedor(nombre: string): string {
   return soloAlfanumerico;
 }
 
-export async function findEmpresaIdByNif(db: D1Database, nif: string): Promise<number | null> {
+type EmpresaRow = { id: number; nombre_proveedor: string; nombre_normalizado: string };
+
+export async function findEmpresaByNif(db: D1Database, nif: string): Promise<EmpresaRow | null> {
   try {
-    const result = await db.prepare("SELECT id FROM fat_empresas WHERE nif_proveedor = ?").bind(nif).all();
-    const rows = (result as any).results as Array<{ id: number }> | undefined;
+    const result = await db.prepare("SELECT id, nombre_proveedor, nombre_normalizado FROM fat_empresas WHERE nif_proveedor = ?").bind(nif).all();
+    const rows = (result as any).results as EmpresaRow[] | undefined;
     if (!rows || rows.length === 0) return null;
     if (rows.length > 1) {
       throw new ProveedorFailure({
@@ -130,7 +133,7 @@ export async function findEmpresaIdByNif(db: D1Database, nif: string): Promise<n
         descripcion: "fat_empresas devolvió múltiples filas para nif_proveedor"
       });
     }
-    return rows[0].id;
+    return rows[0];
   } catch (error: any) {
     if (error instanceof ProveedorFailure) throw error;
     throw new ProveedorFailure({ tipo_error: "fat_empresas_consulta", descripcion: error?.message ?? "Error consultando fat_empresas" });
@@ -167,9 +170,27 @@ export async function resolveProveedorEmpresa(
   nombre_proveedor: string,
   nombre_normalizado: string
 ): Promise<number> {
-  const existingId = await findEmpresaIdByNif(db, nif_proveedor);
-  if (existingId !== null) return existingId;
-  return insertEmpresa(db, { nif_proveedor, nombre_proveedor, nombre_normalizado });
+  const nif = nif_proveedor.trim();
+  const nombre = nombre_proveedor.trim();
+  const normalizado = nombre_normalizado.trim();
+
+  const existing = await findEmpresaByNif(db, nif);
+  if (existing !== null) {
+    if (existing.nombre_normalizado !== normalizado) {
+      throw new ProveedorFailure({
+        tipo_error: "fat_empresas_mismatch",
+        descripcion: "Nombre fiscal no coincide con el almacenado para el NIF",
+        issues: [
+          { campo: "ro.datos_generales.nif_proveedor", valor: nif, motivo: "NIF encontrado" },
+          { campo: "ro.datos_generales.nombre_proveedor", valor: nombre, motivo: "Nombre no coincide con fat_empresas" },
+          { campo: "fat_empresas.nombre_proveedor", valor: existing.nombre_proveedor, motivo: "Nombre registrado" }
+        ]
+      });
+    }
+    return existing.id;
+  }
+
+  return insertEmpresa(db, { nif_proveedor: nif, nombre_proveedor: nombre, nombre_normalizado: normalizado });
 }
 
 export function buildProveedorErrorPayload(params: {

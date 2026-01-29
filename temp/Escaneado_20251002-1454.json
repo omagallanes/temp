@@ -1,0 +1,22 @@
+{
+  "tipo_error": "entrada_invalida",
+  "descripcion": "Entrada mínima de proveedor incompleta",
+  "origen": "proveedor_fat_empresas",
+  "invoiceId": "8baedd71-fc2f-4c26-a788-92c85328fce6",
+  "archivo": {
+    "nombre_original": "Escaneado_20251002-1454.pdf",
+    "r2_pdf_key": "facturas/8baedd71-fc2f-4c26-a788-92c85328fce6/escaneado_20251002-1454.pdf",
+    "file_url": "https://assets.wafacturas.ahg-reformas.es/facturas/8baedd71-fc2f-4c26-a788-92c85328fce6/escaneado_20251002-1454.pdf"
+  },
+  "detalle_validacion": {
+    "campos_faltantes": [],
+    "campos_invalidos": [
+      {
+        "campo": "ro.datos_generales.nif_proveedor",
+        "valor": "",
+        "motivo": "Texto utilizable requerido"
+      }
+    ]
+  },
+  "fecha_error": "2026-01-28T23:03:08.821Z"
+}

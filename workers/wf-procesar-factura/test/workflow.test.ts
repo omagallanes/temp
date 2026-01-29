@@ -3,6 +3,10 @@ import ProcesarFacturaWorkflow from "../src/workflow";
 import { ValidationFailure } from "../src/lib/apioresponse";
 import { ProveedorFailure } from "../src/lib/proveedor";
 
+vi.mock("../src/lib/notificacion", () => ({
+  sendWorkflowNotification: vi.fn(async () => undefined)
+}));
+
 const step = {
   do: async (_name: string, fn: any) => fn()
 };
@@ -81,7 +85,13 @@ describe("workflow logic", () => {
   it("valida y normaliza RO en exito", async () => {
     const putCalls: string[] = [];
     const env: any = {
-      NSKV_SECRETOS: { get: async (k: string) => (k === "OPENAI_API_KEY" ? "test-key" : null) },
+      NSKV_SECRETOS: {
+        get: async (k: string) => {
+          if (k === "OPENAI_API_KEY") return "test-key";
+          if (k === "R2_FACTURAS_PREFIX") return "facturas";
+          return null;
+        }
+      },
       NSKV_PROMPTS: {
         get: async (k: string) => (k === "facturas-extraer-texto" ? JSON.stringify({}) : null)
       },
@@ -156,7 +166,13 @@ describe("workflow logic", () => {
   it("genera error_validacion_factura.json cuando faltan campos", async () => {
     const putCalls: Array<{ key: string; value: string }> = [];
     const env: any = {
-      NSKV_SECRETOS: { get: async (k: string) => (k === "OPENAI_API_KEY" ? "test-key" : null) },
+      NSKV_SECRETOS: {
+        get: async (k: string) => {
+          if (k === "OPENAI_API_KEY") return "test-key";
+          if (k === "R2_FACTURAS_PREFIX") return "facturas";
+          return null;
+        }
+      },
       NSKV_PROMPTS: {
         get: async (k: string) => (k === "facturas-extraer-texto" ? JSON.stringify({}) : null)
       },
@@ -232,7 +248,13 @@ describe("workflow logic", () => {
 
   it("inserta proveedor cuando no existe", async () => {
     const env: any = {
-      NSKV_SECRETOS: { get: async (k: string) => (k === "OPENAI_API_KEY" ? "test-key" : null) },
+      NSKV_SECRETOS: {
+        get: async (k: string) => {
+          if (k === "OPENAI_API_KEY") return "test-key";
+          if (k === "R2_FACTURAS_PREFIX") return "facturas";
+          return null;
+        }
+      },
       NSKV_PROMPTS: { get: async (k: string) => (k === "facturas-extraer-texto" ? JSON.stringify({}) : null) },
       R2_FACTURAS: {
         put: async () => true,
@@ -300,7 +322,13 @@ describe("workflow logic", () => {
   it("genera error_validacion_factura.json cuando proveedor tiene campos vacios", async () => {
     const putCalls: Array<{ key: string; value: string }> = [];
     const env: any = {
-      NSKV_SECRETOS: { get: async (k: string) => (k === "OPENAI_API_KEY" ? "test-key" : null) },
+      NSKV_SECRETOS: {
+        get: async (k: string) => {
+          if (k === "OPENAI_API_KEY") return "test-key";
+          if (k === "R2_FACTURAS_PREFIX") return "facturas";
+          return null;
+        }
+      },
       NSKV_PROMPTS: { get: async (k: string) => (k === "facturas-extraer-texto" ? JSON.stringify({}) : null) },
       R2_FACTURAS: {
         put: async (k: string, v: string) => {
@@ -381,7 +409,13 @@ describe("workflow logic", () => {
   it("propaga error cuando hay duplicidad en fat_empresas", async () => {
     const putCalls: Array<{ key: string; value: string }> = [];
     const env: any = {
-      NSKV_SECRETOS: { get: async (k: string) => (k === "OPENAI_API_KEY" ? "test-key" : null) },
+      NSKV_SECRETOS: {
+        get: async (k: string) => {
+          if (k === "OPENAI_API_KEY") return "test-key";
+          if (k === "R2_FACTURAS_PREFIX") return "facturas";
+          return null;
+        }
+      },
       NSKV_PROMPTS: { get: async (k: string) => (k === "facturas-extraer-texto" ? JSON.stringify({}) : null) },
       R2_FACTURAS: {
         put: async (k: string, v: string) => {

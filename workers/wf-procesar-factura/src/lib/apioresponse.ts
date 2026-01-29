@@ -84,8 +84,8 @@ const REQ_LINEA: Array<keyof LineaFactura> = [
   "importe_total_linea"
 ];
 
-export async function loadApioResponseOutput(r2: any, invoiceId: string) {
-  const key = `facturas/${invoiceId}/facturas-extraer-texto.json`;
+export async function loadApioResponseOutput(r2: any, r2Prefix: string, invoiceId: string) {
+  const key = `${r2Prefix}/${invoiceId}/facturas-extraer-texto.json`;
   const documento = await getR2Json<any>(r2, key);
   if (!documento) {
     throw new ValidationFailure({
@@ -262,11 +262,8 @@ export function buildValidationErrorPayload(params: {
   };
 }
 
-export function buildErrorPathFromPdfKey(r2PdfKey: string) {
-  const lastSlash = r2PdfKey.lastIndexOf("/");
-  if (lastSlash === -1) return "error_validacion_factura.json";
-  const base = r2PdfKey.slice(0, lastSlash);
-  return `${base}/error_validacion_factura.json`;
+export function buildErrorPath(r2Prefix: string, invoiceId: string) {
+  return `${r2Prefix}/${invoiceId}/error_validacion_factura.json`;
 }
 
 function isNumberField(campo: string) {

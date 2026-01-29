@@ -1,6 +1,7 @@
 import PostalMime from "postal-mime";
 import type { EmailMessage, EmailMessageAttachment } from "@cloudflare/workers-types";
 import { Env } from "./types/env";
+import { getRequiredConfig } from "./lib/storage";
 import ProcesarFacturaWorkflow from "./workflow";
 import { buildXlsxFromLineas, LineaFacturaRow } from "./lib/xlsx";
 
@@ -9,9 +10,16 @@ const ALLOWED_MIME = new Set(["application/pdf"]);
 export default {
   async fetch(request: Request, env: Env) {
     const url = new URL(request.url);
+    const { pathname } = url;
 
-    if (url.pathname === "/prueba-sheetjs" && request.method === "GET") {
+    if (pathname === "/prueba-sheetjs" && request.method === "GET") {
       return handlePruebaSheetjs(request, env);
+    }
+
+    const isWorkflowPath = pathname === "/api/wf-procesar-factura" || pathname === "/api/wf-procesar-factura/";
+
+    if (!isWorkflowPath) {
+      return new Response("Ruta no encontrada", { status: 404 });
     }
 
     if (request.method !== "POST") {
@@ -45,7 +53,8 @@ export default {
 
       const fileBuffer = await toArrayBuffer(attachment);
       const invoiceId = crypto.randomUUID();
-      const r2Key = buildEmailR2Key(invoiceId, originalFileName);
+      const r2Prefix = await getRequiredConfig(env, "R2_FACTURAS_PREFIX");
+      const r2Key = buildEmailR2Key(invoiceId, originalFileName, r2Prefix);
 
       await env.R2_FACTURAS.put(r2Key, fileBuffer, {
         httpMetadata: { contentType }
@@ -136,9 +145,9 @@ async function toArrayBuffer(att: EmailMessageAttachment): Promise<ArrayBuffer> 
   }
 }
 
-function buildEmailR2Key(invoiceId: string, originalFileName: string): string {
+function buildEmailR2Key(invoiceId: string, originalFileName: string, r2Prefix: string): string {
   const safeName = sanitizeFileName(originalFileName || "archivo");
-  return `email/${invoiceId}/${safeName}`;
+  return `${r2Prefix}/${invoiceId}/original/${safeName}`;
 }
 
 function sanitizeFileName(name: string): string {
